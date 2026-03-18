@@ -1,0 +1,1655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>UFS Fleet & Fuel Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { 
+            font-family: 'Inter', sans-serif; 
+            touch-action: manipulation;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .fuel-gauge {
+            background: linear-gradient(to right, #ef4444 0%, #eab308 50%, #22c55e 100%);
+            height: 100%;
+            border-radius: 9999px;
+            transition: width 0.5s ease;
+        }
+        .pulse-alert {
+            animation: pulseRed 2s infinite;
+        }
+        @keyframes pulseRed {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            50% { box-shadow: 0 0 0 20px rgba(239, 68, 68, 0); }
+        }
+        .slide-up {
+            animation: slideUp 0.4s ease-out;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .van-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+        }
+        .van-card:active {
+            transform: scale(0.98);
+        }
+        .van-card.dragging {
+            opacity: 0.5;
+            transform: scale(1.05);
+            z-index: 1000;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .van-card.admin-mode {
+            cursor: move;
+            position: relative;
+        }
+        .van-card.admin-mode::after {
+            content: '\f0c9';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            color: rgba(255,255,255,0.8);
+            font-size: 1.2rem;
+            background: rgba(0,0,0,0.3);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .fuel-slider {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 12px;
+            border-radius: 6px;
+            background: linear-gradient(to right, #ef4444 0%, #eab308 50%, #22c55e 100%);
+            outline: none;
+        }
+        .fuel-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: white;
+            border: 3px solid #4b5563;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .critical-fuel {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            border: 2px solid #ef4444;
+            animation: borderPulse 2s infinite;
+        }
+        @keyframes borderPulse {
+            0%, 100% { border-color: #ef4444; }
+            50% { border-color: #f87171; }
+        }
+        .key-present {
+            background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+            box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+        }
+        .key-hook {
+            background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+        }
+        .admin-btn {
+            transition: all 0.2s;
+        }
+        .admin-btn:active {
+            transform: scale(0.95);
+        }
+        /* Vehicle type badges */
+        .type-people { background: linear-gradient(135deg, #db2777 0%, #be185d 100%); }
+        .type-box { background: linear-gradient(135deg, #ea580c 0%, #c2410c 100%); }
+        .type-refrigerated { background: linear-gradient(135deg, #06b6d4 0%, #0891b2 100%); }
+        .type-low { background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); }
+        .type-high { background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); }
+        .type-ppl-cargo { background: linear-gradient(135deg, #10b981 0%, #059669 100%); }
+        .type-small { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); }
+        
+        .fuel-type-badge {
+            font-size: 0.65rem;
+            letter-spacing: 0.05em;
+        }
+        
+        .time-block-indicator {
+            position: absolute;
+            bottom: 4px;
+            left: 4px;
+            right: 4px;
+            height: 4px;
+            background: rgba(99, 102, 241, 0.8);
+            border-radius: 2px;
+        }
+        
+        .drag-placeholder {
+            background: rgba(234, 179, 8, 0.2);
+            border: 2px dashed #eab308;
+            border-radius: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-lg">
+
+    <!-- Header -->
+    <nav class="bg-slate-900 text-white shadow-2xl sticky top-0 z-50 border-b-4 border-yellow-500">
+        <div class="max-w-7xl mx-auto px-6 py-4">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-4">
+                    <div class="bg-yellow-500 p-3 rounded-xl shadow-lg">
+                        <i class="fas fa-truck-moving text-3xl text-slate-900"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tight">UTAH FOOD SERVICES</h1>
+                        <p class="text-yellow-400 font-semibold text-lg">Fleet & Fuel Management</p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <div class="bg-slate-800 px-6 py-3 rounded-xl border border-slate-700">
+                        <div class="text-slate-400 text-sm uppercase tracking-wider font-bold">Current Time</div>
+                        <div id="currentTime" class="text-3xl font-mono font-bold text-white"></div>
+                    </div>
+                    <button onclick="toggleAdminPanel()" class="bg-slate-700 hover:bg-slate-600 p-4 rounded-xl transition border border-slate-600" title="Admin Settings">
+                        <i class="fas fa-cog text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Admin Panel -->
+    <div id="adminPanel" class="hidden bg-slate-800 text-white border-b border-slate-700 shadow-lg">
+        <div class="max-w-7xl mx-auto px-6 py-6">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-yellow-400"><i class="fas fa-lock mr-2"></i>Admin Panel</h2>
+                <button onclick="toggleAdminPanel()" class="text-slate-400 hover:text-white text-2xl">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <button onclick="adminResetAllFuel()" class="admin-btn bg-green-600 hover:bg-green-700 p-4 rounded-xl text-left">
+                    <i class="fas fa-gas-pump text-2xl mb-2 block"></i>
+                    <div class="font-bold">Refuel All</div>
+                </button>
+                
+                <button onclick="toggleReorderMode()" id="reorderBtn" class="admin-btn bg-purple-600 hover:bg-purple-700 p-4 rounded-xl text-left">
+                    <i class="fas fa-arrows-alt text-2xl mb-2 block"></i>
+                    <div class="font-bold">Reorder Vehicles</div>
+                    <div class="text-sm text-purple-200">Drag to rearrange</div>
+                </button>
+                
+                <button onclick="openReservationModal()" class="admin-btn bg-indigo-600 hover:bg-indigo-700 p-4 rounded-xl text-left">
+                    <i class="fas fa-calendar-check text-2xl mb-2 block"></i>
+                    <div class="font-bold">Block/Reserve</div>
+                    <div class="text-sm text-indigo-200">Assign driver & time</div>
+                </button>
+                
+                <button onclick="adminClearLogs()" class="admin-btn bg-red-600 hover:bg-red-700 p-4 rounded-xl text-left">
+                    <i class="fas fa-trash-alt text-2xl mb-2 block"></i>
+                    <div class="font-bold">Clear Logs</div>
+                </button>
+            </div>
+            
+            <div id="reorderHint" class="hidden bg-purple-900 rounded-xl p-4 text-purple-200 text-center">
+                <i class="fas fa-hand-pointer mr-2"></i> Hold and drag vehicles to reorder. Click "Save Order" when done.
+                <button onclick="saveVehicleOrder()" class="ml-4 bg-purple-500 hover:bg-purple-400 text-white px-4 py-2 rounded-lg font-bold">Save Order</button>
+                <button onclick="cancelReorder()" class="ml-2 bg-slate-600 hover:bg-slate-500 text-white px-4 py-2 rounded-lg">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fuel Alerts Banner -->
+    <div id="fuelAlerts" class="hidden bg-red-600 text-white px-6 py-4 shadow-lg">
+        <div class="max-w-7xl mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <i class="fas fa-gas-pump text-3xl animate-bounce"></i>
+                <div>
+                    <h3 class="text-xl font-bold">LOW FUEL ALERT</h3>
+                    <p class="text-red-100" id="fuelAlertText">Vehicles need refueling</p>
+                </div>
+            </div>
+            <button onclick="dismissFuelAlert()" class="bg-red-700 hover:bg-red-800 px-6 py-2 rounded-lg font-bold">
+                Dismiss
+            </button>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto px-6 py-8 space-y-6">
+
+        <!-- Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div class="bg-white rounded-2xl shadow-lg p-6 border-l-8 border-green-500">
+                <div class="text-gray-500 font-bold text-sm uppercase">Available</div>
+                <div class="text-5xl font-black text-gray-900 mt-2" id="availableCount">0</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-lg p-6 border-l-8 border-yellow-500">
+                <div class="text-gray-500 font-bold text-sm uppercase">Out Now</div>
+                <div class="text-5xl font-black text-gray-900 mt-2" id="outCount">0</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-lg p-6 border-l-8 border-indigo-500">
+                <div class="text-gray-500 font-bold text-sm uppercase">Blocked</div>
+                <div class="text-5xl font-black text-indigo-600 mt-2" id="blockedCount">0</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-lg p-6 border-l-8 border-orange-500">
+                <div class="text-gray-500 font-bold text-sm uppercase">Today's Trips</div>
+                <div class="text-5xl font-black text-gray-900 mt-2" id="todayTrips">0</div>
+            </div>
+            <div class="bg-white rounded-2xl shadow-lg p-6 border-l-8 border-red-500 cursor-pointer hover:bg-red-50 transition" onclick="filterLowFuel()">
+                <div class="text-gray-500 font-bold text-sm uppercase">Need Fuel</div>
+                <div class="text-5xl font-black text-red-600 mt-2" id="lowFuelCount">0</div>
+            </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Vehicle Selection -->
+            <div class="lg:col-span-2 space-y-4">
+                <div class="flex justify-between items-center">
+                    <h2 class="text-2xl font-bold text-gray-900">
+                        <i class="fas fa-th-large text-yellow-500 mr-3"></i>
+                        Select Vehicle
+                    </h2>
+                    <div class="flex space-x-2 bg-white p-1 rounded-xl shadow-sm">
+                        <button onclick="filterVans('all')" id="filter-all" class="px-6 py-3 rounded-lg font-bold text-lg bg-yellow-500 text-slate-900 shadow-md transition">All</button>
+                        <button onclick="filterVans('available')" id="filter-available" class="px-6 py-3 rounded-lg font-bold text-lg text-gray-600 hover:bg-gray-100 transition">Available</button>
+                        <button onclick="filterVans('out')" id="filter-out" class="px-6 py-3 rounded-lg font-bold text-lg text-gray-600 hover:bg-gray-100 transition">Out</button>
+                        <button onclick="filterVans('blocked')" id="filter-blocked" class="px-6 py-3 rounded-lg font-bold text-lg text-gray-600 hover:bg-gray-100 transition">Blocked</button>
+                    </div>
+                </div>
+
+                <div id="fleetGrid" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <!-- Vehicle cards -->
+                </div>
+            </div>
+
+            <!-- Side Panel -->
+            <div class="lg:col-span-1">
+                <div id="selectedVanPanel" class="bg-white rounded-2xl shadow-xl border-2 border-gray-200 overflow-hidden sticky top-24">
+                    <div class="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+                        <h3 class="text-xl font-bold text-gray-900">Vehicle Details</h3>
+                        <button onclick="closeDetails()" class="text-gray-400 hover:text-gray-600 text-xl">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    
+                    <div id="noSelection" class="p-12 text-center text-gray-400">
+                        <i class="fas fa-hand-pointer text-6xl mb-4 opacity-30"></i>
+                        <p class="text-xl font-semibold">Tap a vehicle to view details</p>
+                    </div>
+
+                    <div id="vanDetails" class="hidden">
+                        <div class="p-6 space-y-6">
+                            <div class="flex justify-between items-start">
+                                <div class="flex-1">
+                                    <div class="text-4xl font-black text-gray-900 mb-1 leading-tight" id="detailVanNumber">Vehicle</div>
+                                    <div class="flex flex-wrap items-center gap-2 mt-2">
+                                        <span id="detailStatusBadge" class="px-4 py-1 rounded-full text-sm font-bold bg-green-100 text-green-800">
+                                            AVAILABLE
+                                        </span>
+                                        <span id="detailTypeBadge" class="px-3 py-1 rounded-full text-xs font-bold text-white type-low">
+                                            TYPE
+                                        </span>
+                                        <span id="fuelTypeBadge" class="fuel-type-badge px-2 py-1 rounded bg-gray-200 text-gray-700 font-bold uppercase">
+                                            FUEL
+                                        </span>
+                                    </div>
+                                </div>
+                                <div id="keyStatusIcon" class="w-20 h-20 rounded-2xl key-hook flex items-center justify-center text-white text-3xl shadow-lg flex-shrink-0">
+                                    <i class="fas fa-key"></i>
+                                </div>
+                            </div>
+
+                            <!-- Reservation Info (if blocked) - NO CLEAR BUTTON HERE -->
+                            <div id="reservationInfo" class="hidden bg-indigo-50 rounded-xl p-4 border border-indigo-200">
+                                <div class="text-indigo-800 font-bold mb-2"><i class="fas fa-lock mr-2"></i>Reserved/Blocked</div>
+                                <div class="text-indigo-900 font-semibold" id="reservedFor">Driver Name</div>
+                                <div class="text-indigo-700 text-sm mt-1" id="reservedTime">Time Block</div>
+                                <div class="text-indigo-600 text-sm mt-2 italic" id="reservationNote"></div>
+                                <!-- Clear button only shows for admin - handled in JS -->
+                                <button id="adminClearResBtn" onclick="clearReservation()" class="hidden mt-3 w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg font-bold text-sm">
+                                    <i class="fas fa-unlock mr-2"></i>Admin: Clear Reservation
+                                </button>
+                            </div>
+
+                            <!-- Vehicle Info -->
+                            <div class="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="font-bold text-gray-700">Vehicle Type</span>
+                                    <span id="vehicleTypeText" class="font-bold text-blue-600">Type</span>
+                                </div>
+                                <div class="text-sm text-gray-500 mb-3" id="vehicleTypeDesc">Description</div>
+                                
+                                <div class="border-t border-gray-200 pt-3 space-y-2 text-sm">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Fuel Type:</span>
+                                        <span id="detailFuelType" class="font-bold text-gray-900">Fuel</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-600">Capacity:</span>
+                                        <span id="detailCapacity" class="font-bold text-gray-900">Capacity</span>
+                                    </div>
+                                    <div class="flex justify-between" id="lengthRow">
+                                        <span class="text-gray-600">Length:</span>
+                                        <span id="detailLength" class="font-bold text-gray-900">Length</span>
+                                    </div>
+                                    <div class="flex justify-between hidden" id="logoRow">
+                                        <span class="text-gray-600">Branding:</span>
+                                        <span id="detailLogo" class="font-bold text-gray-900">Logo</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Fuel Section -->
+                            <div class="bg-gray-50 rounded-xl p-4 border-2 border-gray-200">
+                                <div class="flex justify-between items-center mb-3">
+                                    <span class="font-bold text-gray-700 text-lg">Fuel Level</span>
+                                    <span id="fuelPercentage" class="text-3xl font-black text-green-600">100%</span>
+                                </div>
+                                <div class="h-6 bg-gray-200 rounded-full overflow-hidden relative">
+                                    <div id="fuelBar" class="fuel-gauge" style="width: 100%"></div>
+                                </div>
+                                
+                                <button onclick="quickRefuel()" id="quickRefuelBtn" class="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl shadow-lg transition flex items-center justify-center space-x-2">
+                                    <i class="fas fa-gas-pump"></i>
+                                    <span>Refuel to 100%</span>
+                                </button>
+                            </div>
+
+                            <div id="lastDriverInfo" class="hidden bg-yellow-50 rounded-xl p-4 border border-yellow-200">
+                                <div class="text-yellow-800 font-bold mb-2"><i class="fas fa-user-clock mr-2"></i>Currently Out</div>
+                                <div class="text-yellow-900 text-lg font-semibold" id="currentDriverName">Driver</div>
+                                <div class="text-yellow-700 text-sm mt-1">Out: <span id="checkOutTime">Time</span></div>
+                                <div class="text-yellow-700 text-sm">Duration: <span id="tripDuration" class="font-mono font-bold">Duration</span></div>
+                            </div>
+
+                            <div class="space-y-3" id="actionButtons">
+                                <!-- Dynamic buttons -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                <h2 class="text-xl font-bold text-gray-900">
+                    <i class="fas fa-history text-yellow-500 mr-3"></i>
+                    Today's Activity Log
+                </h2>
+                <button onclick="exportData()" class="bg-gray-800 hover:bg-gray-700 text-white px-6 py-3 rounded-xl font-bold transition">
+                    <i class="fas fa-download mr-2"></i>Export CSV
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-100 text-gray-600 text-sm uppercase tracking-wider">
+                        <tr>
+                            <th class="px-6 py-4 font-bold">Time</th>
+                            <th class="px-6 py-4 font-bold">Vehicle</th>
+                            <th class="px-6 py-4 font-bold">Type</th>
+                            <th class="px-6 py-4 font-bold">Driver</th>
+                            <th class="px-6 py-4 font-bold">Purpose</th>
+                            <th class="px-6 py-4 font-bold">Fuel</th>
+                            <th class="px-6 py-4 font-bold">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody" class="divide-y divide-gray-200 text-lg">
+                        <!-- Logs -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Check-Out Modal -->
+    <div id="checkOutModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full slide-up">
+            <div class="bg-yellow-500 text-slate-900 px-8 py-6 flex justify-between items-center">
+                <div>
+                    <h3 class="text-3xl font-bold">Check Out</h3>
+                    <p class="text-slate-800 text-lg font-semibold" id="modalVanTitle">Vehicle</p>
+                    <p class="text-yellow-800 text-sm mt-1" id="modalVanType">Type</p>
+                </div>
+                <button onclick="closeModal()" class="text-slate-900 hover:text-slate-700 text-3xl">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="checkOutForm" class="p-8 space-y-6">
+                <div>
+                    <label class="block text-gray-700 font-bold text-lg mb-2">Driver Name</label>
+                    <input type="text" id="modalDriver" required class="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-xl focus:border-yellow-500 outline-none" placeholder="Enter full name">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-gray-700 font-bold text-lg mb-2">Purpose</label>
+                        <select id="modalPurpose" class="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-xl focus:border-yellow-500 outline-none bg-white">
+                            <option value="Delivery">Delivery</option>
+                            <option value="Catering">Catering</option>
+                            <option value="Concessions">Concessions</option>
+                            <option value="Supply Run">Supply Run</option>
+                            <option value="Maintenance">Maintenance</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-gray-700 font-bold text-lg mb-2">Destination</label>
+                        <input type="text" id="modalDestination" class="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-xl focus:border-yellow-500 outline-none" placeholder="Location">
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-2xl p-6 border-2 border-gray-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <label class="block text-gray-700 font-bold text-lg">Current Fuel Level</label>
+                        <span id="modalFuelPercent" class="text-3xl font-black text-yellow-600">100%</span>
+                    </div>
+                    <input type="range" id="modalFuelSlider" min="0" max="100" value="100" class="fuel-slider mb-4" oninput="updateModalFuel(this.value)">
+                    <div class="flex justify-between text-sm font-bold text-gray-500 uppercase">
+                        <span class="text-red-600">Empty</span>
+                        <span class="text-green-800">Full</span>
+                    </div>
+                </div>
+
+                <button type="submit" class="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-bold py-5 rounded-xl text-2xl shadow-lg transition flex items-center justify-center space-x-3">
+                    <i class="fas fa-key"></i>
+                    <span>Confirm Check Out</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Check-In Modal -->
+    <div id="checkInModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full slide-up">
+            <div class="bg-blue-600 text-white px-8 py-6 flex justify-between items-center">
+                <div>
+                    <h3 class="text-3xl font-bold">Return Vehicle</h3>
+                    <p class="text-blue-100 text-lg" id="checkInVanTitle">Vehicle</p>
+                </div>
+                <button onclick="closeCheckInModal()" class="text-white hover:text-blue-200 text-3xl">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="checkInForm" class="p-8 space-y-6">
+                <div class="bg-blue-50 rounded-2xl p-6 border-2 border-blue-200">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <div class="text-blue-900 font-bold text-lg">Driver</div>
+                            <div class="text-blue-800 text-2xl font-bold" id="checkInDriver">Driver</div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-blue-900 font-bold text-lg">Duration</div>
+                            <div class="text-blue-800 text-2xl font-bold font-mono" id="checkInDuration">0h 0m</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 rounded-2xl p-6 border-2 border-gray-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <label class="block text-gray-700 font-bold text-lg">Fuel Level on Return</label>
+                        <span id="checkInFuelPercent" class="text-3xl font-black text-blue-600">50%</span>
+                    </div>
+                    <input type="range" id="checkInFuelSlider" min="0" max="100" value="50" class="fuel-slider mb-4" oninput="updateCheckInFuel(this.value)">
+                    
+                    <div id="fuelAlertBox" class="hidden mt-4 bg-red-100 border-2 border-red-400 rounded-xl p-4 flex items-start space-x-3">
+                        <i class="fas fa-exclamation-triangle text-red-600 text-2xl mt-1"></i>
+                        <div>
+                            <div class="font-bold text-red-800 text-lg">Low Fuel Warning</div>
+                            <div class="text-red-700">Vehicle needs fuel before next use</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <button type="button" onclick="closeCheckInModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-4 rounded-xl text-xl transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl text-xl shadow-lg transition flex items-center justify-center space-x-2">
+                        <i class="fas fa-check"></i>
+                        <span>Confirm Return</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Reservation/Block Modal -->
+    <div id="reservationModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl shadow-2xl max-w-lg w-full slide-up">
+            <div class="bg-indigo-600 text-white px-8 py-6 flex justify-between items-center">
+                <div>
+                    <h3 class="text-3xl font-bold">Block/Reserve Vehicle</h3>
+                    <p class="text-indigo-100 text-lg">Assign driver and time block</p>
+                </div>
+                <button onclick="closeReservationModal()" class="text-white hover:text-indigo-200 text-3xl">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <form id="reservationForm" class="p-8 space-y-6">
+                <div>
+                    <label class="block text-gray-700 font-bold text-lg mb-2">Select Vehicle</label>
+                    <select id="resVehicle" class="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-xl focus:border-indigo-500 outline-none bg-white">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-gray-700 font-bold text-lg mb-2">Driver/Assignee Name</label>
+                    <input type="text" id="resDriver" required class="w-full border-2 border-gray-300 rounded-xl px-4 py-4 text-xl focus:border-indigo-500 outline-none" placeholder="Enter name">
+                </div>
+
+                <div>
+                    <label class="block text-gray-700 font-bold text-lg mb-2">Time Block</label>
+                    <div class="space-y-3">
+                        <label class="flex items-center p-4 border-2 border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition">
+                            <input type="radio" name="timeBlock" value="morning" class="w-6 h-6 text-indigo-600 mr-4" checked>
+                            <div>
+                                <div class="font-bold text-lg">Morning Block</div>
+                                <div class="text-gray-500">3:00 AM - 2:00 PM</div>
+                            </div>
+                        </label>
+                        
+                        <label class="flex items-center p-4 border-2 border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition">
+                            <input type="radio" name="timeBlock" value="evening" class="w-6 h-6 text-indigo-600 mr-4">
+                            <div>
+                                <div class="font-bold text-lg">Evening Block</div>
+                                <div class="text-gray-500">2:01 PM - 1:00 AM (next day)</div>
+                            </div>
+                        </label>
+                        
+                        <label class="flex items-center p-4 border-2 border-gray-200 rounded-xl cursor-pointer hover:bg-gray-50 transition">
+                            <input type="radio" name="timeBlock" value="allday" class="w-6 h-6 text-indigo-600 mr-4">
+                            <div>
+                                <div class="font-bold text-lg">All Day</div>
+                                <div class="text-gray-500">24 Hour Block</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-gray-700 font-bold text-lg mb-2">Notes (Optional)</label>
+                    <textarea id="resNotes" rows="2" class="w-full border-2 border-gray-300 rounded-xl px-4 py-3 text-lg focus:border-indigo-500 outline-none resize-none" placeholder="Purpose, route, etc."></textarea>
+                </div>
+
+                <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-5 rounded-xl text-2xl shadow-lg transition flex items-center justify-center space-x-3">
+                    <i class="fas fa-lock"></i>
+                    <span>Block Vehicle</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-8 right-8 transform translate-y-32 opacity-0 transition-all duration-500 z-50">
+        <div class="bg-gray-900 text-white px-8 py-6 rounded-2xl shadow-2xl flex items-center space-x-4">
+            <div id="toastIcon" class="text-3xl text-green-400">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div>
+                <div id="toastTitle" class="font-bold text-xl">Success</div>
+                <div id="toastMessage" class="text-gray-300 text-lg">Operation completed</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Utah Food Services Permanent Fleet Configuration - NO AUTO-EXPIRE
+        const defaultFleet = [
+            // People Movers (2)
+            { id: 1, number: 'Grey - X', type: 'people', fuelType: 'Gas', seats: 5, length: null, logo: 'Grey', desc: '5+ seat people mover', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 2, number: 'The Van 118', type: 'people', fuelType: 'Gas', seats: 11, length: null, logo: 'Standard', desc: '11 seat people mover', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            
+            // Box Trucks (4)
+            { id: 3, number: '211', type: 'box', fuelType: 'Propane & Gas', length: "16'", logo: 'Standard', desc: '16ft box truck - Propane & Gas', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 4, number: '213', type: 'box', fuelType: 'Diesel', length: "16'", refrigerated: true, logo: 'Standard', desc: '16ft refrigerated box truck - Diesel', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 5, number: '219', type: 'box', fuelType: 'Gas', length: "20'", logo: 'Standard', desc: '20ft longest box truck - Gas', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 6, number: '220', type: 'box', fuelType: 'Gas', length: "14'", logo: 'No Logo', desc: '14ft box truck - No logo - Gas', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            
+            // Cargo Vans (12) - All hybrid references changed to ppl-cargo
+            { id: 7, number: '#5', type: 'low', fuelType: 'Gas', length: null, logo: 'Plain White - Concessions', desc: 'Plain white concessions van - No logo - Gas', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 8, number: '214', type: 'high', fuelType: 'Gas & Propane', length: null, logo: 'Standard', desc: 'High top - Gas & Propane', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 9, number: '215', type: 'high', fuelType: 'Gas & Propane', length: null, logo: 'Standard', desc: 'High top - Gas & Propane', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 10, number: '216', type: 'low', fuelType: 'Gas', length: null, logo: 'Standard', desc: 'Low roof - Gas only', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 11, number: '217', type: 'low', fuelType: 'Gas', length: null, logo: 'Standard', desc: 'Low roof - Gas only', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 12, number: '218', type: 'ppl-cargo', fuelType: 'Gas', seats: 5, length: null, logo: 'Standard', desc: 'PPL - Cargo van - 5 passenger capacity', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 13, number: '414', type: 'refrigerated', fuelType: 'Gas', length: null, refrigerated: true, logo: 'Standard', desc: 'Refrigerated cargo van - Gas', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 14, number: '415', type: 'ppl-cargo', fuelType: 'Propane & Gas', seats: 5, awd: true, length: null, logo: 'Standard', desc: 'PPL - Cargo AWD - 5 passenger - Propane & Gas', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 15, number: '416', type: 'small', fuelType: 'Gas', length: null, logo: 'Standard', desc: 'Small van - Low top - Gas only', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null },
+            { id: 16, number: '417', type: 'small', fuelType: 'Gas', length: null, logo: 'Floral', desc: 'Small van - Floral logo - Low top - Gas only', status: 'available', currentDriver: null, checkOutTime: null, purpose: null, fuelAtCheckOut: null, lastFuelLevel: 100, reservation: null }
+        ];
+
+        let fleetData = { vans: [], logs: [] };
+        let selectedVanId = null;
+        let currentFilter = 'all';
+        let isAdmin = false;
+        let reorderMode = false;
+        let draggedItem = null;
+        let longPressTimer = null;
+
+        const vehicleTypes = {
+            'people': { label: 'PEOPLE MOVER', color: 'type-people', icon: 'fa-users' },
+            'box': { label: 'BOX TRUCK', color: 'type-box', icon: 'fa-truck' },
+            'refrigerated': { label: 'REFRIGERATED', color: 'type-refrigerated', icon: 'fa-snowflake' },
+            'low': { label: 'LOW ROOF', color: 'type-low', icon: 'fa-van-shuttle' },
+            'high': { label: 'HIGH TOP', color: 'type-high', icon: 'fa-arrow-up' },
+            'ppl-cargo': { label: 'PPL - CARGO', color: 'type-ppl-cargo', icon: 'fa-people-carry' },
+            'small': { label: 'SMALL VAN', color: 'type-small', icon: 'fa-compress' }
+        };
+
+        function initData() {
+            const savedVans = localStorage.getItem('ufs_vans');
+            const savedLogs = localStorage.getItem('ufs_logs');
+            const savedOrder = localStorage.getItem('ufs_van_order');
+            
+            if (savedVans) {
+                const parsed = JSON.parse(savedVans);
+                if (parsed.length === 16) {
+                    fleetData.vans = parsed;
+                    fleetData.vans.forEach(v => {
+                        if (!v.hasOwnProperty('reservation')) v.reservation = null;
+                    });
+                } else {
+                    fleetData.vans = JSON.parse(JSON.stringify(defaultFleet));
+                    saveData();
+                }
+            } else {
+                fleetData.vans = JSON.parse(JSON.stringify(defaultFleet));
+            }
+            
+            if (savedOrder) {
+                const order = JSON.parse(savedOrder);
+                fleetData.vans.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+            }
+            
+            if (savedLogs) fleetData.logs = JSON.parse(savedLogs);
+            
+            // REMOVED: Auto-expiration check - reservations now persist until manually cleared
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initData();
+            updateTime();
+            setInterval(updateTime, 1000);
+            // REMOVED: setInterval(checkExpiredReservations, 60000) - no auto-expire
+            renderFleet();
+            loadLogs();
+            updateStats();
+            checkFuelAlerts();
+        });
+
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('currentTime').textContent = now.toLocaleTimeString('en-US', {
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+            });
+        }
+
+        function getTypeInfo(type) {
+            return vehicleTypes[type] || vehicleTypes['low'];
+        }
+
+        // REMOVED: checkExpiredReservations function - no longer needed
+
+        function isVehicleBlocked(van) {
+            // Simple check - if status is blocked and has reservation, it's blocked
+            // No time-based expiration
+            return van.status === 'blocked' && van.reservation !== null;
+        }
+
+        function renderFleet() {
+            const grid = document.getElementById('fleetGrid');
+            grid.innerHTML = '';
+            
+            const filtered = fleetData.vans.filter(van => {
+                if (currentFilter === 'all') return true;
+                if (currentFilter === 'lowfuel') return van.lastFuelLevel < 25 && van.status === 'available';
+                if (currentFilter === 'blocked') return van.status === 'blocked';
+                return van.status === currentFilter;
+            });
+
+            filtered.forEach((van, index) => {
+                const card = document.createElement('div');
+                const isLowFuel = van.lastFuelLevel < 25 && van.status === 'available';
+                const isCritical = van.lastFuelLevel < 10 && van.status === 'available';
+                const typeInfo = getTypeInfo(van.type);
+                const isBlocked = isVehicleBlocked(van);
+                
+                let borderClass = 'border-green-500';
+                let bgClass = '';
+                
+                if (van.status === 'out') {
+                    borderClass = 'border-yellow-500 bg-yellow-50';
+                } else if (van.status === 'blocked') {
+                    borderClass = 'border-indigo-500 bg-indigo-50';
+                } else if (isCritical) {
+                    borderClass = 'critical-fuel';
+                } else if (isLowFuel) {
+                    borderClass = 'border-red-400 bg-red-50';
+                }
+                
+                card.className = `van-card bg-white rounded-2xl p-5 shadow-lg border-4 relative ${borderClass} ${bgClass} ${selectedVanId === van.id ? 'ring-4 ring-yellow-300' : ''} ${reorderMode ? 'admin-mode' : ''}`;
+                card.draggable = reorderMode;
+                card.dataset.vanId = van.id;
+                card.dataset.index = index;
+                
+                if (reorderMode) {
+                    card.addEventListener('dragstart', handleDragStart);
+                    card.addEventListener('dragend', handleDragEnd);
+                    card.addEventListener('dragover', handleDragOver);
+                    card.addEventListener('drop', handleDrop);
+                    card.addEventListener('touchstart', handleTouchStart, {passive: false});
+                    card.addEventListener('touchend', handleTouchEnd);
+                    card.addEventListener('touchmove', handleTouchMove, {passive: false});
+                } else {
+                    card.onclick = () => selectVan(van.id);
+                }
+                
+                const fuelColor = van.lastFuelLevel > 50 ? 'bg-green-500' : van.lastFuelLevel > 25 ? 'bg-yellow-500' : 'bg-red-500';
+                const displayNumber = van.number.length > 8 ? van.number.substring(0, 8) + '...' : van.number;
+                
+                let statusIcon = '';
+                if (van.status === 'out') {
+                    statusIcon = '<span class="flex h-4 w-4 relative"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-yellow-400 opacity-75"></span><span class="relative inline-flex rounded-full h-4 w-4 bg-yellow-500"></span></span>';
+                } else if (van.status === 'blocked') {
+                    statusIcon = '<i class="fas fa-lock text-indigo-500 text-xl"></i>';
+                } else if (isLowFuel) {
+                    statusIcon = '<i class="fas fa-gas-pump text-red-500 text-xl animate-pulse"></i>';
+                } else {
+                    statusIcon = '<i class="fas fa-check-circle text-green-500 text-xl"></i>';
+                }
+                
+                let reservationIndicator = '';
+                if (van.reservation) {
+                    reservationIndicator = '<div class="time-block-indicator" title="Reserved"></div>';
+                }
+                
+                card.innerHTML = `
+                    ${reservationIndicator}
+                    <div class="flex justify-between items-start mb-3">
+                        <div class="w-14 h-14 ${van.status === 'out' ? 'bg-yellow-500 text-slate-900' : van.status === 'blocked' ? 'bg-indigo-500' : isLowFuel ? 'bg-red-500' : 'bg-green-500'} rounded-2xl flex items-center justify-center text-white font-black text-lg shadow-lg leading-tight text-center p-1">
+                            ${displayNumber}
+                        </div>
+                        <div class="flex flex-col items-end space-y-1">
+                            <span class="px-2 py-1 rounded text-xs font-bold text-white ${typeInfo.color}">
+                                ${typeInfo.label}
+                            </span>
+                            ${van.refrigerated ? '<span class="px-2 py-0.5 rounded text-xs font-bold bg-cyan-100 text-cyan-700"><i class="fas fa-snowflake"></i> REF</span>' : ''}
+                            ${statusIcon}
+                        </div>
+                    </div>
+                    
+                    <h3 class="text-xl font-black text-gray-900 mb-1 leading-tight" title="${van.number}">${van.number}</h3>
+                    <div class="text-xs font-bold text-gray-500 mb-2 uppercase tracking-wider flex items-center">
+                        <i class="fas ${typeInfo.icon} mr-1"></i> ${typeInfo.label}
+                    </div>
+                    
+                    ${van.reservation ? `
+                        <div class="mb-2 px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs font-bold truncate">
+                            <i class="fas fa-user-clock mr-1"></i> ${van.reservation.driver}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center text-sm font-bold">
+                            <span class="text-gray-500 uppercase text-xs">Fuel</span>
+                            <span class="${van.lastFuelLevel < 25 ? 'text-red-600' : 'text-gray-900'}">${van.lastFuelLevel}%</span>
+                        </div>
+                        <div class="h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                            <div class="${fuelColor} h-full rounded-full transition-all duration-500" style="width: ${van.lastFuelLevel}%"></div>
+                        </div>
+                        
+                        ${van.status === 'out' ? `
+                            <div class="mt-2 pt-2 border-t border-yellow-200">
+                                <div class="text-yellow-900 font-bold text-sm truncate">${van.currentDriver}</div>
+                                <div class="text-yellow-700 text-xs font-mono">${calculateDuration(van.checkOutTime)}</div>
+                            </div>
+                        ` : van.status === 'blocked' ? `
+                            <div class="mt-2 pt-2 border-t border-indigo-200">
+                                <div class="text-indigo-900 font-bold text-sm truncate">${van.reservation?.driver || 'Reserved'}</div>
+                                <div class="text-indigo-700 text-xs">${formatTimeBlock(van.reservation?.timeBlock)}</div>
+                            </div>
+                        ` : isLowFuel ? `
+                            <div class="mt-2 pt-2 border-t border-red-200">
+                                <div class="text-red-600 font-bold text-xs flex items-center">
+                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                    REFUEL REQUIRED
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                
+                grid.appendChild(card);
+            });
+        }
+
+        function formatTimeBlock(block) {
+            if (block === 'morning') return '3 AM - 2 PM';
+            if (block === 'evening') return '2 PM - 1 AM';
+            if (block === 'allday') return 'All Day';
+            return block || 'Reserved';
+        }
+
+        // Drag and Drop Handlers (same as before)
+        function handleDragStart(e) {
+            draggedItem = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/html', this.innerHTML);
+        }
+
+        function handleDragEnd(e) {
+            this.classList.remove('dragging');
+            draggedItem = null;
+            document.querySelectorAll('.van-card').forEach(card => card.classList.remove('drag-placeholder'));
+        }
+
+        function handleDragOver(e) {
+            if (e.preventDefault) e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            
+            const afterElement = getDragAfterElement(document.getElementById('fleetGrid'), e.clientY, e.clientX);
+            document.querySelectorAll('.van-card').forEach(card => card.classList.remove('drag-placeholder'));
+            
+            if (afterElement) {
+                afterElement.classList.add('drag-placeholder');
+            }
+            return false;
+        }
+
+        function handleDrop(e) {
+            if (e.stopPropagation) e.stopPropagation();
+            if (draggedItem !== this) {
+                const grid = document.getElementById('fleetGrid');
+                const afterElement = getDragAfterElement(grid, e.clientY, e.clientX);
+                
+                if (afterElement == null) {
+                    grid.appendChild(draggedItem);
+                } else {
+                    grid.insertBefore(draggedItem, afterElement);
+                }
+                
+                updateFleetOrder();
+            }
+            return false;
+        }
+
+        let touchDragItem = null;
+        let touchOffsetX = 0;
+        let touchOffsetY = 0;
+
+        function handleTouchStart(e) {
+            const touch = e.touches[0];
+            touchDragItem = this;
+            const rect = this.getBoundingClientRect();
+            touchOffsetX = touch.clientX - rect.left;
+            touchOffsetY = touch.clientY - rect.top;
+            
+            longPressTimer = setTimeout(() => {
+                this.classList.add('dragging');
+            }, 500);
+        }
+
+        function handleTouchMove(e) {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+            if (!touchDragItem || !touchDragItem.classList.contains('dragging')) return;
+            
+            e.preventDefault();
+            const touch = e.touches[0];
+            const grid = document.getElementById('fleetGrid');
+            const afterElement = getDragAfterElement(grid, touch.clientY, touch.clientX);
+            
+            document.querySelectorAll('.van-card').forEach(card => card.classList.remove('drag-placeholder'));
+            if (afterElement && afterElement !== touchDragItem) {
+                afterElement.classList.add('drag-placeholder');
+            }
+        }
+
+        function handleTouchEnd(e) {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+            if (!touchDragItem) return;
+            
+            if (touchDragItem.classList.contains('dragging')) {
+                const touch = e.changedTouches[0];
+                const grid = document.getElementById('fleetGrid');
+                const afterElement = getDragAfterElement(grid, touch.clientY, touch.clientX);
+                
+                if (afterElement == null) {
+                    grid.appendChild(touchDragItem);
+                } else {
+                    grid.insertBefore(touchDragItem, afterElement);
+                }
+                
+                updateFleetOrder();
+            }
+            
+            touchDragItem.classList.remove('dragging');
+            document.querySelectorAll('.van-card').forEach(card => card.classList.remove('drag-placeholder'));
+            touchDragItem = null;
+        }
+
+        function getDragAfterElement(container, y, x) {
+            const draggableElements = [...container.querySelectorAll('.van-card:not(.dragging)')];
+            
+            return draggableElements.reduce((closest, child) => {
+                const box = child.getBoundingClientRect();
+                const offsetX = x - box.left - box.width / 2;
+                const offsetY = y - box.top - box.height / 2;
+                const offset = Math.sqrt(offsetX * offsetX + offsetY * offsetY);
+                
+                if (offset < closest.offset) {
+                    return { offset: offset, element: child };
+                } else {
+                    return closest;
+                }
+            }, { offset: Number.POSITIVE_INFINITY }).element;
+        }
+
+        function updateFleetOrder() {
+            const grid = document.getElementById('fleetGrid');
+            const cards = grid.querySelectorAll('.van-card');
+            const newOrder = [];
+            
+            cards.forEach(card => {
+                const vanId = parseInt(card.dataset.vanId);
+                const van = fleetData.vans.find(v => v.id === vanId);
+                if (van) newOrder.push(van);
+            });
+            
+            fleetData.vans = newOrder;
+        }
+
+        function toggleReorderMode() {
+            reorderMode = !reorderMode;
+            const btn = document.getElementById('reorderBtn');
+            const hint = document.getElementById('reorderHint');
+            
+            if (reorderMode) {
+                btn.classList.remove('bg-purple-600', 'hover:bg-purple-700');
+                btn.classList.add('bg-purple-800', 'hover:bg-purple-900', 'ring-4', 'ring-purple-300');
+                hint.classList.remove('hidden');
+                showToast('Drag mode enabled - Hold and drag vehicles to reorder', 'success');
+            } else {
+                btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+                btn.classList.remove('bg-purple-800', 'hover:bg-purple-900', 'ring-4', 'ring-purple-300');
+                hint.classList.add('hidden');
+            }
+            
+            renderFleet();
+        }
+
+        function saveVehicleOrder() {
+            const order = fleetData.vans.map(v => v.id);
+            localStorage.setItem('ufs_van_order', JSON.stringify(order));
+            saveData();
+            reorderMode = false;
+            document.getElementById('reorderHint').classList.add('hidden');
+            const btn = document.getElementById('reorderBtn');
+            btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+            btn.classList.remove('bg-purple-800', 'hover:bg-purple-900', 'ring-4', 'ring-purple-300');
+            renderFleet();
+            showToast('Vehicle order saved', 'success');
+        }
+
+        function cancelReorder() {
+            const savedOrder = localStorage.getItem('ufs_van_order');
+            if (savedOrder) {
+                const order = JSON.parse(savedOrder);
+                fleetData.vans.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+            } else {
+                fleetData.vans.sort((a, b) => a.id - b.id);
+            }
+            reorderMode = false;
+            document.getElementById('reorderHint').classList.add('hidden');
+            const btn = document.getElementById('reorderBtn');
+            btn.classList.add('bg-purple-600', 'hover:bg-purple-700');
+            btn.classList.remove('bg-purple-800', 'hover:bg-purple-900', 'ring-4', 'ring-purple-300');
+            renderFleet();
+        }
+
+        function openReservationModal() {
+            const select = document.getElementById('resVehicle');
+            select.innerHTML = '';
+            
+            fleetData.vans.forEach(van => {
+                if (van.status === 'available' || van.status === 'blocked') {
+                    const option = document.createElement('option');
+                    option.value = van.id;
+                    option.textContent = `${van.number} - ${getTypeInfo(van.type).label} ${van.status === 'blocked' ? '(Currently Blocked)' : ''}`;
+                    if (van.status === 'blocked') option.style.color = '#6366f1';
+                    select.appendChild(option);
+                }
+            });
+            
+            document.getElementById('reservationModal').classList.remove('hidden');
+        }
+
+        function closeReservationModal() {
+            document.getElementById('reservationModal').classList.add('hidden');
+            document.getElementById('reservationForm').reset();
+        }
+
+        document.getElementById('reservationForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const vanId = parseInt(document.getElementById('resVehicle').value);
+            const driver = document.getElementById('resDriver').value;
+            const timeBlock = document.querySelector('input[name="timeBlock"]:checked').value;
+            const notes = document.getElementById('resNotes').value;
+            
+            const van = fleetData.vans.find(v => v.id === vanId);
+            van.status = 'blocked';
+            van.reservation = {
+                driver: driver,
+                timeBlock: timeBlock,
+                date: new Date().toISOString(),
+                notes: notes
+            };
+            
+            saveData();
+            closeReservationModal();
+            renderFleet();
+            updateStats();
+            if (selectedVanId === vanId) selectVan(vanId);
+            showToast(`${van.number} blocked for ${driver}`, 'success');
+        });
+
+        // ADMIN ONLY - Clear reservation
+        function clearReservation() {
+            if (!isAdmin) {
+                showToast('Admin access required to clear reservations', 'error');
+                return;
+            }
+            if (!selectedVanId) return;
+            const van = fleetData.vans.find(v => v.id === selectedVanId);
+            if (!van.reservation) return;
+            
+            if (confirm(`Clear reservation for ${van.number}?`)) {
+                van.status = 'available';
+                van.reservation = null;
+                saveData();
+                selectVan(selectedVanId);
+                renderFleet();
+                updateStats();
+                showToast('Reservation cleared', 'success');
+            }
+        }
+
+        function selectVan(vanId) {
+            selectedVanId = vanId;
+            const van = fleetData.vans.find(v => v.id === vanId);
+            const typeInfo = getTypeInfo(van.type);
+            
+            document.getElementById('noSelection').classList.add('hidden');
+            document.getElementById('vanDetails').classList.remove('hidden');
+            
+            // Show/hide reservation info
+            const resInfo = document.getElementById('reservationInfo');
+            const adminClearBtn = document.getElementById('adminClearResBtn');
+            
+            if (van.reservation && van.status === 'blocked') {
+                resInfo.classList.remove('hidden');
+                document.getElementById('reservedFor').textContent = van.reservation.driver;
+                document.getElementById('reservedTime').textContent = formatTimeBlock(van.reservation.timeBlock);
+                document.getElementById('reservationNote').textContent = van.reservation.notes || '';
+                
+                // Only show clear button if admin is active
+                if (isAdmin) {
+                    adminClearBtn.classList.remove('hidden');
+                } else {
+                    adminClearBtn.classList.add('hidden');
+                }
+            } else {
+                resInfo.classList.add('hidden');
+            }
+            
+            document.getElementById('detailVanNumber').textContent = van.number;
+            
+            const typeBadge = document.getElementById('detailTypeBadge');
+            typeBadge.className = `px-3 py-1 rounded-full text-xs font-bold text-white ${typeInfo.color}`;
+            typeBadge.textContent = typeInfo.label;
+            
+            const fuelBadge = document.getElementById('fuelTypeBadge');
+            fuelBadge.textContent = van.fuelType;
+            if (van.fuelType.includes('Propane')) {
+                fuelBadge.className = 'fuel-type-badge px-2 py-1 rounded bg-orange-100 text-orange-700 font-bold uppercase';
+            } else if (van.fuelType === 'Diesel') {
+                fuelBadge.className = 'fuel-type-badge px-2 py-1 rounded bg-gray-700 text-white font-bold uppercase';
+            } else {
+                fuelBadge.className = 'fuel-type-badge px-2 py-1 rounded bg-blue-100 text-blue-700 font-bold uppercase';
+            }
+            
+            document.getElementById('vehicleTypeText').textContent = typeInfo.label;
+            document.getElementById('vehicleTypeDesc').textContent = van.desc;
+            document.getElementById('detailFuelType').textContent = van.fuelType;
+            document.getElementById('detailCapacity').textContent = van.seats ? `${van.seats} seats` : 'Cargo Only';
+            
+            if (van.length) {
+                document.getElementById('lengthRow').classList.remove('hidden');
+                document.getElementById('detailLength').textContent = van.length;
+            } else {
+                document.getElementById('lengthRow').classList.add('hidden');
+            }
+            
+            if (van.logo && van.logo !== 'Standard') {
+                document.getElementById('logoRow').classList.remove('hidden');
+                document.getElementById('detailLogo').textContent = van.logo;
+            } else {
+                document.getElementById('logoRow').classList.add('hidden');
+            }
+            
+            const statusBadge = document.getElementById('detailStatusBadge');
+            const keyIcon = document.getElementById('keyStatusIcon');
+            const actionButtons = document.getElementById('actionButtons');
+            const lastDriverInfo = document.getElementById('lastDriverInfo');
+            const quickRefuelBtn = document.getElementById('quickRefuelBtn');
+            
+            document.getElementById('fuelPercentage').textContent = van.lastFuelLevel + '%';
+            document.getElementById('fuelBar').style.width = van.lastFuelLevel + '%';
+            
+            const fuelPercentEl = document.getElementById('fuelPercentage');
+            const fuelBar = document.getElementById('fuelBar');
+            if (van.lastFuelLevel < 25) {
+                fuelPercentEl.className = 'text-3xl font-black text-red-600';
+                fuelBar.className = 'h-full rounded-full transition-all duration-500 bg-red-500';
+                quickRefuelBtn.classList.remove('hidden');
+            } else if (van.lastFuelLevel < 50) {
+                fuelPercentEl.className = 'text-3xl font-black text-yellow-600';
+                fuelBar.className = 'h-full rounded-full transition-all duration-500 bg-yellow-500';
+                quickRefuelBtn.classList.add('hidden');
+            } else {
+                fuelPercentEl.className = 'text-3xl font-black text-green-600';
+                fuelBar.className = 'h-full rounded-full transition-all duration-500 bg-green-500';
+                quickRefuelBtn.classList.add('hidden');
+            }
+            
+            if (van.status === 'out') {
+                statusBadge.className = 'px-4 py-1 rounded-full text-sm font-bold bg-yellow-100 text-yellow-800';
+                statusBadge.textContent = 'OUT ON DELIVERY';
+                keyIcon.className = 'w-20 h-20 rounded-2xl bg-yellow-500 flex items-center justify-center text-slate-900 text-3xl shadow-lg';
+                keyIcon.innerHTML = '<i class="fas fa-road"></i>';
+                quickRefuelBtn.classList.add('hidden');
+                resInfo.classList.add('hidden');
+                
+                lastDriverInfo.classList.remove('hidden');
+                document.getElementById('currentDriverName').textContent = van.currentDriver;
+                document.getElementById('checkOutTime').textContent = new Date(van.checkOutTime).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                document.getElementById('tripDuration').textContent = calculateDuration(van.checkOutTime);
+                
+                actionButtons.innerHTML = `
+                    <button onclick="openCheckInModal(${van.id})" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl text-xl shadow-lg transition flex items-center justify-center space-x-3">
+                        <i class="fas fa-undo"></i>
+                        <span>Return Keys / Check In</span>
+                    </button>
+                `;
+            } else if (van.status === 'blocked') {
+                statusBadge.className = 'px-4 py-1 rounded-full text-sm font-bold bg-indigo-100 text-indigo-800';
+                statusBadge.textContent = 'BLOCKED/RESERVED';
+                keyIcon.className = 'w-20 h-20 rounded-2xl bg-indigo-500 flex items-center justify-center text-white text-3xl shadow-lg';
+                keyIcon.innerHTML = '<i class="fas fa-lock"></i>';
+                quickRefuelBtn.classList.add('hidden');
+                lastDriverInfo.classList.add('hidden');
+                
+                // Regular users see blocked message, no action buttons
+                // Admin sees clear button in the reservation info section above
+                actionButtons.innerHTML = `
+                    <div class="bg-indigo-50 border-2 border-indigo-300 rounded-xl p-4">
+                        <div class="text-indigo-800 font-bold mb-2"><i class="fas fa-lock mr-2"></i>Vehicle Reserved</div>
+                        <div class="text-indigo-700 text-sm">Assigned to: ${van.reservation?.driver || 'Unknown'}</div>
+                        <div class="text-indigo-700 text-sm">Time: ${formatTimeBlock(van.reservation?.timeBlock)}</div>
+                        ${!isAdmin ? '<div class="text-indigo-600 text-sm mt-2 italic">Contact admin to clear reservation</div>' : ''}
+                    </div>
+                `;
+            } else {
+                const isLowFuel = van.lastFuelLevel < 25;
+                statusBadge.className = `px-4 py-1 rounded-full text-sm font-bold ${isLowFuel ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`;
+                statusBadge.textContent = isLowFuel ? 'NEEDS FUEL' : 'AVAILABLE';
+                keyIcon.className = `w-20 h-20 rounded-2xl ${isLowFuel ? 'bg-red-500' : 'key-present'} flex items-center justify-center text-white text-3xl shadow-lg`;
+                keyIcon.innerHTML = '<i class="fas fa-key"></i>';
+                
+                lastDriverInfo.classList.add('hidden');
+                resInfo.classList.add('hidden');
+                
+                if (isLowFuel) {
+                    actionButtons.innerHTML = `
+                        <div class="bg-red-50 border-2 border-red-300 rounded-xl p-4 mb-4">
+                            <div class="text-red-800 font-bold mb-2"><i class="fas fa-ban mr-2"></i>Cannot Check Out</div>
+                            <div class="text-red-700 text-sm">Vehicle must be refueled first</div>
+                        </div>
+                    `;
+                } else {
+                    actionButtons.innerHTML = `
+                        <button onclick="openCheckOutModal(${van.id})" class="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-900 font-bold py-4 rounded-xl text-xl shadow-lg transition flex items-center justify-center space-x-3">
+                            <i class="fas fa-key"></i>
+                            <span>Check Out Vehicle</span>
+                        </button>
+                    `;
+                }
+            }
+            
+            if (!reorderMode) renderFleet();
+        }
+
+        function closeDetails() {
+            selectedVanId = null;
+            document.getElementById('noSelection').classList.remove('hidden');
+            document.getElementById('vanDetails').classList.add('hidden');
+            if (!reorderMode) renderFleet();
+        }
+
+        function quickRefuel() {
+            if (!selectedVanId) return;
+            const van = fleetData.vans.find(v => v.id === selectedVanId);
+            van.lastFuelLevel = 100;
+            saveData();
+            selectVan(selectedVanId);
+            renderFleet();
+            updateStats();
+            checkFuelAlerts();
+            showToast(`${van.number} refueled to 100%`, 'success');
+        }
+
+        function toggleAdminPanel() {
+            const panel = document.getElementById('adminPanel');
+            if (panel.classList.contains('hidden')) {
+                const password = prompt('Enter admin password:');
+                if (password === 'ufs2024') {
+                    isAdmin = true;
+                    panel.classList.remove('hidden');
+                    // Refresh details view if a vehicle is selected to show admin controls
+                    if (selectedVanId) selectVan(selectedVanId);
+                } else if (password) {
+                    showToast('Incorrect password', 'error');
+                }
+            } else {
+                panel.classList.add('hidden');
+                isAdmin = false;
+                if (reorderMode) cancelReorder();
+                // Refresh details view to hide admin controls
+                if (selectedVanId) selectVan(selectedVanId);
+            }
+        }
+
+        function adminResetAllFuel() {
+            if (!isAdmin) return;
+            if (confirm('Reset ALL 16 vehicles to 100% fuel?')) {
+                fleetData.vans.forEach(v => v.lastFuelLevel = 100);
+                saveData();
+                renderFleet();
+                updateStats();
+                checkFuelAlerts();
+                if (selectedVanId) selectVan(selectedVanId);
+                showToast('All vehicles refueled', 'success');
+            }
+        }
+
+        function adminClearLogs() {
+            if (!isAdmin) return;
+            if (confirm('WARNING: Delete ALL trip history?')) {
+                fleetData.logs = [];
+                saveData();
+                loadLogs();
+                updateStats();
+                showToast('All logs cleared', 'success');
+            }
+        }
+
+        function openCheckOutModal(vanId) {
+            selectedVanId = vanId;
+            const van = fleetData.vans.find(v => v.id === vanId);
+            const typeInfo = getTypeInfo(van.type);
+            
+            document.getElementById('modalVanTitle').textContent = van.number;
+            document.getElementById('modalVanType').textContent = `${typeInfo.label} - ${van.fuelType}`;
+            document.getElementById('modalFuelSlider').value = van.lastFuelLevel;
+            updateModalFuel(van.lastFuelLevel);
+            document.getElementById('checkOutModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('checkOutModal').classList.add('hidden');
+            document.getElementById('checkOutForm').reset();
+        }
+
+        function updateModalFuel(value) {
+            document.getElementById('modalFuelPercent').textContent = value + '%';
+            const el = document.getElementById('modalFuelPercent');
+            if (value < 25) el.className = 'text-3xl font-black text-red-600';
+            else if (value < 50) el.className = 'text-3xl font-black text-yellow-600';
+            else el.className = 'text-3xl font-black text-green-600';
+        }
+
+        document.getElementById('checkOutForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const van = fleetData.vans.find(v => v.id === selectedVanId);
+            
+            van.status = 'out';
+            van.currentDriver = document.getElementById('modalDriver').value;
+            van.purpose = document.getElementById('modalPurpose').value;
+            van.destination = document.getElementById('modalDestination').value;
+            van.checkOutTime = new Date().toISOString();
+            van.fuelAtCheckOut = parseInt(document.getElementById('modalFuelSlider').value);
+            
+            const logEntry = {
+                id: Date.now(),
+                vanId: van.id,
+                vanNumber: van.number,
+                vanType: van.type,
+                driver: van.currentDriver,
+                purpose: van.purpose,
+                destination: van.destination,
+                checkOut: van.checkOutTime,
+                checkIn: null,
+                fuelOut: van.fuelAtCheckOut,
+                fuelIn: null,
+                date: new Date().toDateString()
+            };
+            
+            fleetData.logs.unshift(logEntry);
+            saveData();
+            closeModal();
+            
+            showToast(`${van.number} checked out`, 'success');
+            selectVan(van.id);
+            renderFleet();
+            loadLogs();
+            updateStats();
+        });
+
+        function openCheckInModal(vanId) {
+            selectedVanId = vanId;
+            const van = fleetData.vans.find(v => v.id === vanId);
+            
+            document.getElementById('checkInVanTitle').textContent = van.number;
+            document.getElementById('checkInDriver').textContent = van.currentDriver;
+            document.getElementById('checkInDuration').textContent = calculateDuration(van.checkOutTime);
+            
+            // 17% fuel estimation
+            const estimatedFuel = Math.max(10, (van.fuelAtCheckOut || 100) - 17);
+            document.getElementById('checkInFuelSlider').value = estimatedFuel;
+            updateCheckInFuel(estimatedFuel);
+            
+            document.getElementById('checkInModal').classList.remove('hidden');
+        }
+
+        function closeCheckInModal() {
+            document.getElementById('checkInModal').classList.add('hidden');
+        }
+
+        function updateCheckInFuel(value) {
+            document.getElementById('checkInFuelPercent').textContent = value + '%';
+            const alertBox = document.getElementById('fuelAlertBox');
+            
+            if (parseInt(value) < 25) {
+                alertBox.classList.remove('hidden');
+                document.getElementById('checkInFuelPercent').className = 'text-3xl font-black text-red-600';
+            } else {
+                alertBox.classList.add('hidden');
+                document.getElementById('checkInFuelPercent').className = parseInt(value) < 50 ? 'text-3xl font-black text-yellow-600' : 'text-3xl font-black text-green-600';
+            }
+        }
+
+        document.getElementById('checkInForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const van = fleetData.vans.find(v => v.id === selectedVanId);
+            const fuelIn = parseInt(document.getElementById('checkInFuelSlider').value);
+            
+            const logEntry = fleetData.logs.find(l => l.vanId === selectedVanId && !l.checkIn);
+            if (logEntry) {
+                logEntry.checkIn = new Date().toISOString();
+                logEntry.fuelIn = fuelIn;
+                logEntry.duration = Math.floor((new Date() - new Date(logEntry.checkOut)) / 1000 / 60);
+            }
+            
+            van.status = 'available';
+            van.lastFuelLevel = fuelIn;
+            van.currentDriver = null;
+            van.checkOutTime = null;
+            van.fuelAtCheckOut = null;
+            
+            saveData();
+            closeCheckInModal();
+            
+            const fuelMsg = fuelIn < 25 ? ' - Low Fuel' : '';
+            showToast(`${van.number} returned${fuelMsg}`, fuelIn < 25 ? 'warning' : 'success');
+            selectVan(van.id);
+            renderFleet();
+            loadLogs();
+            updateStats();
+            checkFuelAlerts();
+        });
+
+        function calculateDuration(startTime) {
+            const diff = Math.floor((new Date() - new Date(startTime)) / 1000 / 60);
+            const hours = Math.floor(diff / 60);
+            const mins = diff % 60;
+            return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+        }
+
+        function loadLogs() {
+            const tbody = document.getElementById('logTableBody');
+            const today = new Date().toDateString();
+            const dayLogs = fleetData.logs.filter(l => new Date(l.checkOut).toDateString() === today);
+            
+            tbody.innerHTML = '';
+            
+            if (dayLogs.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7" class="px-6 py-12 text-center text-gray-400">
+                            <i class="fas fa-clipboard-list text-5xl mb-4 opacity-30"></i>
+                            <p class="text-xl font-semibold">No activity today</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            dayLogs.forEach(log => {
+                const isActive = !log.checkIn;
+                const typeInfo = getTypeInfo(log.vanType || 'low');
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition border-b border-gray-100';
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="font-bold text-gray-900">${new Date(log.checkOut).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                        ${log.checkIn ? `<div class="text-sm text-gray-500">→ ${new Date(log.checkIn).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>` : ''}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap font-bold text-lg text-gray-900">${log.vanNumber}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 py-1 rounded text-xs font-bold text-white ${typeInfo.color}">
+                            ${typeInfo.label}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap font-semibold text-gray-900">${log.driver}</td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-3 py-1 rounded-full text-sm font-bold bg-gray-100 text-gray-700">${log.purpose}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="flex items-center space-x-2">
+                            <div class="w-8 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                <div class="h-full ${log.fuelOut > 50 ? 'bg-green-500' : log.fuelOut > 25 ? 'bg-yellow-500' : 'bg-red-500'}" style="width: ${log.fuelOut}%"></div>
+                            </div>
+                            <span class="text-xs font-bold">${log.fuelOut}%</span>
+                            ${log.fuelIn !== null ? `
+                                <i class="fas fa-arrow-right text-gray-400 text-xs"></i>
+                                <div class="w-8 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                    <div class="h-full ${log.fuelIn > 50 ? 'bg-green-500' : log.fuelIn > 25 ? 'bg-yellow-500' : 'bg-red-500'}" style="width: ${log.fuelIn}%"></div>
+                                </div>
+                                <span class="text-xs font-bold">${log.fuelIn}%</span>
+                            ` : ''}
+                        </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${isActive ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}">
+                            ${isActive ? '<span class="w-2 h-2 bg-yellow-500 rounded-full mr-2 animate-pulse"></span> Out' : 'Done'}
+                        </span>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function updateStats() {
+            const available = fleetData.vans.filter(v => v.status === 'available').length;
+            const out = fleetData.vans.filter(v => v.status === 'out').length;
+            const blocked = fleetData.vans.filter(v => v.status === 'blocked').length;
+            const lowFuel = fleetData.vans.filter(v => v.lastFuelLevel < 25 && v.status === 'available').length;
+            const today = new Date().toDateString();
+            const todayLogs = fleetData.logs.filter(l => new Date(l.checkOut).toDateString() === today);
+            
+            document.getElementById('availableCount').textContent = available;
+            document.getElementById('outCount').textContent = out;
+            document.getElementById('blockedCount').textContent = blocked;
+            document.getElementById('todayTrips').textContent = todayLogs.length;
+            document.getElementById('lowFuelCount').textContent = lowFuel;
+            
+            const totalMinutes = todayLogs.reduce((acc, log) => {
+                if (log.duration) return acc + log.duration;
+                if (!log.checkIn) return acc + Math.floor((new Date() - new Date(log.checkOut)) / 1000 / 60);
+                return acc;
+            }, 0);
+            
+            document.getElementById('activeHours').textContent = (totalMinutes / 60).toFixed(1);
+        }
+
+        function checkFuelAlerts() {
+            const lowFuelVans = fleetData.vans.filter(v => v.lastFuelLevel < 25 && v.status === 'available');
+            const alertBanner = document.getElementById('fuelAlerts');
+            
+            if (lowFuelVans.length > 0) {
+                alertBanner.classList.remove('hidden');
+                const names = lowFuelVans.map(v => v.number).join(', ');
+                document.getElementById('fuelAlertText').textContent = 
+                    names.length > 50 ? names.substring(0, 50) + '... need fuel' : names + ' need fuel';
+            } else {
+                alertBanner.classList.add('hidden');
+            }
+        }
+
+        function dismissFuelAlert() {
+            document.getElementById('fuelAlerts').classList.add('hidden');
+        }
+
+        function filterLowFuel() {
+            currentFilter = 'lowfuel';
+            updateFilterButtons();
+            renderFleet();
+        }
+
+        function filterVans(type) {
+            currentFilter = type;
+            updateFilterButtons();
+            renderFleet();
+        }
+
+        function updateFilterButtons() {
+            document.querySelectorAll('[id^="filter-"]').forEach(btn => {
+                const btnType = btn.id.replace('filter-', '');
+                if (btnType === currentFilter) {
+                    btn.className = 'px-6 py-3 rounded-lg font-bold text-lg bg-yellow-500 text-slate-900 shadow-md transition';
+                } else {
+                    btn.className = 'px-6 py-3 rounded-lg font-bold text-lg text-gray-600 hover:bg-gray-100 transition';
+                }
+            });
+        }
+
+        function saveData() {
+            localStorage.setItem('ufs_vans', JSON.stringify(fleetData.vans));
+            localStorage.setItem('ufs_logs', JSON.stringify(fleetData.logs));
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const icon = document.getElementById('toastIcon');
+            const title = document.getElementById('toastTitle');
+            const msg = document.getElementById('toastMessage');
+            
+            msg.textContent = message;
+            
+            if (type === 'error') {
+                icon.innerHTML = '<i class="fas fa-exclamation-circle text-red-400"></i>';
+                title.textContent = 'Error';
+                title.className = 'font-bold text-xl text-red-400';
+            } else if (type === 'warning') {
+                icon.innerHTML = '<i class="fas fa-exclamation-triangle text-yellow-400"></i>';
+                title.textContent = 'Warning';
+                title.className = 'font-bold text-xl text-yellow-400';
+            } else {
+                icon.innerHTML = '<i class="fas fa-check-circle text-green-400"></i>';
+                title.textContent = 'Success';
+                title.className = 'font-bold text-xl text-green-400';
+            }
+            
+            toast.classList.remove('translate-y-32', 'opacity-0');
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-32', 'opacity-0');
+            }, 4000);
+        }
+
+        function exportData() {
+            const date = new Date().toISOString().split('T')[0];
+            const csvContent = [
+                ['Date', 'Vehicle', 'Type', 'Fuel Type', 'Driver', 'Purpose', 'Destination', 'Check Out', 'Check In', 'Duration (min)', 'Fuel Out %', 'Fuel In %'].join(','),
+                ...fleetData.logs.map(log => {
+                    const van = fleetData.vans.find(v => v.id === log.vanId) || {};
+                    return [
+                        new Date(log.checkOut).toLocaleDateString(),
+                        log.vanNumber,
+                        getTypeInfo(log.vanType || 'low').label,
+                        van.fuelType || '',
+                        log.driver,
+                        log.purpose,
+                        log.destination || '',
+                        new Date(log.checkOut).toLocaleString(),
+                        log.checkIn ? new Date(log.checkIn).toLocaleString() : 'Active',
+                        log.duration || 'In Progress',
+                        log.fuelOut,
+                        log.fuelIn !== null ? log.fuelIn : 'N/A'
+                    ].join(',');
+                })
+            ].join('\n');
+
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `ufs-fleet-log-${date}.csv`;
+            a.click();
+            showToast('CSV exported');
+        }
+
+        if ('wakeLock' in navigator) {
+            navigator.wakeLock.request('screen').catch(err => console.log('Wake lock failed:', err));
+        }
+    </script>
+</body>
+</html>
